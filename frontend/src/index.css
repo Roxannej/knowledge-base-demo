@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 页面基础排版 */
+#root {
+  min-height: 100vh;
+}
