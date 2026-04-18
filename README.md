@@ -148,6 +148,14 @@ SSE 流式对话，输入同 `/chat`，返回事件：
 - `type=done`：结束
 - `type=error`：错误信息
 
+### 流式 Markdown 表格稳定性（后端控制）
+
+为避免 LLM token 随机切分导致 Markdown table 断裂，后端支持 `TABLE_STREAM_MODE`：
+
+- `raw`：原样 token 输出（延迟最低，稳定性最差）
+- `line`：按完整行输出
+- `block`：按完整表格块输出并规范化（默认，推荐）
+
 ## RAG 处理流程（简版）
 
 1. 文档解析为纯文本

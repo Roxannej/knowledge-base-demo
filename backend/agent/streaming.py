@@ -16,6 +16,7 @@ from kb_rag.vector_store import InMemoryVectorStore
 from schemas.rag_answer import RAGStructuredAnswer
 
 from .graph import build_rag_agent_graph
+from .output_processor import StreamMarkdownProcessor, resolve_stream_mode
 from .structured import render_messages_transcript, synthesize_metadata_only
 
 
@@ -92,6 +93,9 @@ async def stream_rag_sse_events(
     - `{type:"error", message:"..."}` — 失败
     """
     try:
+        stream_mode = resolve_stream_mode()
+        processor = StreamMarkdownProcessor(mode=stream_mode)
+
         graph = build_rag_agent_graph(llm, store)
         state = await graph.ainvoke(
             {"messages": [HumanMessage(content=user_message)]},
@@ -115,8 +119,17 @@ async def stream_rag_sse_events(
             delta = _extract_text_delta(chunk)
             if not delta:
                 continue
-            pieces.append(delta)
-            yield _sse_data({"type": "token", "content": delta})
+            for safe_piece in processor.push(delta):
+                if not safe_piece:
+                    continue
+                pieces.append(safe_piece)
+                yield _sse_data({"type": "token", "content": safe_piece})
+
+        for safe_piece in processor.flush():
+            if not safe_piece:
+                continue
+            pieces.append(safe_piece)
+            yield _sse_data({"type": "token", "content": safe_piece})
 
         answer = "".join(pieces).strip()
         if not answer:
