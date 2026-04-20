@@ -19,11 +19,14 @@ from .multi_query import MultiQuerySpec, generate_multi_queries, generate_multi_
 from .rerank import PassageScore, RerankLLMOutput, rerank_passages, rerank_passages_sync
 from .retrieval import retrieve_with_multiquery_rerank
 from .faiss_store import FaissPersistedVectorStore
+from .index_manager import IndexInfo, IndexManager
 from .vector_store import InMemoryVectorStore, RAGVectorStore, SearchResult
 
 __all__ = [
     "DEFAULT_EMBEDDING_MODEL",
     "FaissPersistedVectorStore",
+    "IndexInfo",
+    "IndexManager",
     "InMemoryVectorStore",
     "RAGVectorStore",
     "SUPPORTED_UPLOAD_EXTENSIONS",

@@ -32,7 +32,9 @@ def resolve_stream_mode() -> StreamMode:
     - line:  按完整行输出
     - block: 对 table block 做完整缓冲后输出（默认，推荐）
     """
-    return _normalize_mode(os.getenv("TABLE_STREAM_MODE", "block"))
+    # 默认使用 line，避免 block 模式在少数切片场景下重排表格行导致 GFM 识别失败。
+    # 如需实验更激进的表格归一化，可显式设置 TABLE_STREAM_MODE=block。
+    return _normalize_mode(os.getenv("TABLE_STREAM_MODE", "line"))
 
 
 _TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$")

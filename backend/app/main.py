@@ -30,10 +30,16 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from agent import run_rag_conversation_to_structured, stream_rag_sse_events
-from app.deps import get_chat_model, get_vector_store
-from app.schemas_http import ChatRequest
+from app.deps import get_chat_model, get_index_manager, get_vector_store
+from app.schemas_http import ChatRequest, CreateIndexRequest, IndexResponse
 import kb_rag.document_loader as _document_loader
 from kb_rag import SUPPORTED_UPLOAD_EXTENSIONS, UnsupportedDocumentError
+from kb_rag.index_manager import (
+    IndexAlreadyExistsError,
+    IndexManager,
+    IndexNotFoundError,
+    InvalidIndexNameError,
+)
 from kb_rag.vector_store import RAGVectorStore
 from kb_rag.chunking import chunk_plain_text
 from kb_rag.embeddings import embedding_backend_label
@@ -58,7 +64,9 @@ async def _ingest_document(
     data: bytes,
     description: str | None,
     replace: bool,
+    index_name: str,
     store: RAGVectorStore,
+    manager: IndexManager,
 ) -> dict:
     """解析、分块、入库；失败时不执行 replace 清空。"""
     if not data:
@@ -93,6 +101,7 @@ async def _ingest_document(
             return store.add_texts(texts)
 
         ids = await asyncio.to_thread(_blocking_commit)
+        manager.touch_index(index_name)
     except HTTPException:
         raise
     except UnsupportedDocumentError as exc:
@@ -106,6 +115,7 @@ async def _ingest_document(
         "replaced_all": replace,
         "vector_store_size": store.size,
         "description": desc_stripped,
+        "index_name": index_name,
     }
 
 app.add_middleware(
@@ -122,7 +132,8 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    store = get_vector_store()
+    manager = get_index_manager()
+    store = get_vector_store("default")
     vec_meta: dict = {"vector_store_backend": "faiss"}
     idx_dir = getattr(store, "index_dir", None)
     if idx_dir is not None:
@@ -133,16 +144,58 @@ async def health():
         # 用于排查加载路径：应指向本项目 backend/kb_rag/document_loader.py
         "document_loader_file": getattr(_document_loader, "__file__", None),
         "embedding_backend": embedding_backend_label(),
+        "indexes": [x.model_dump() for x in manager.list_indexes()],
         **vec_meta,
         **openai_chat_env_status(),
     }
+
+
+@app.post("/indexes", response_model=IndexResponse)
+async def create_index(
+    body: CreateIndexRequest,
+    manager: IndexManager = Depends(get_index_manager),
+):
+    try:
+        item = manager.create_index(name=body.name, description=body.description)
+    except InvalidIndexNameError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except IndexAlreadyExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return IndexResponse.model_validate(item.model_dump())
+
+
+@app.get("/indexes", response_model=list[IndexResponse])
+async def list_indexes(manager: IndexManager = Depends(get_index_manager)):
+    items = manager.list_indexes()
+    return [IndexResponse.model_validate(x.model_dump()) for x in items]
+
+
+@app.get("/indexes/{name}", response_model=IndexResponse)
+async def get_index(name: str, manager: IndexManager = Depends(get_index_manager)):
+    try:
+        item = manager.get_index(name)
+    except (InvalidIndexNameError, IndexNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return IndexResponse.model_validate(item.model_dump())
+
+
+@app.delete("/indexes/{name}")
+async def delete_index(name: str, manager: IndexManager = Depends(get_index_manager)):
+    try:
+        manager.delete_index(name)
+    except InvalidIndexNameError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except IndexNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"deleted": True, "name": name}
 
 
 @app.post("/upload")
 async def upload(
     request: Request,
     replace: bool = Query(False, description="为 true 时先清空向量库再写入"),
-    store: RAGVectorStore = Depends(get_vector_store),
+    index_name: str = Query("default", description="目标索引名称"),
+    manager: IndexManager = Depends(get_index_manager),
 ):
     """
     上传文档并写入向量库（`multipart/form-data`）。
@@ -168,6 +221,11 @@ async def upload(
             detail="表单字段 file 必须是文件类型，不能是纯文本字段。",
         )
 
+    try:
+        store = manager.get_store(index_name)
+    except (InvalidIndexNameError, IndexNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     filename = (raw.filename or "unnamed").strip()
     data = await raw.read()
 
@@ -185,7 +243,9 @@ async def upload(
         data=data,
         description=description,
         replace=replace,
+        index_name=index_name,
         store=store,
+        manager=manager,
     )
 
 
@@ -199,12 +259,13 @@ async def upload_binary(
         description="含扩展名的文件名，用于判断类型，例如 document.pdf",
     ),
     replace: bool = Query(False),
+    index_name: str = Query("default", description="目标索引名称"),
     description: str | None = Query(
         default=None,
         max_length=4000,
         description="可选说明（URL 编码）；会并入待索引文本前缀",
     ),
-    store: RAGVectorStore = Depends(get_vector_store),
+    manager: IndexManager = Depends(get_index_manager),
 ):
     """
     原始请求体即文件字节（非 multipart），适合命令行：
@@ -212,6 +273,11 @@ async def upload_binary(
     curl --data-binary \"@/path/to/a.pdf\" \\
       \"http://localhost:5173/api/upload/binary?filename=a.pdf&replace=true\"
     """
+    try:
+        store = manager.get_store(index_name)
+    except (InvalidIndexNameError, IndexNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     data = await request.body()
     name = PurePath((filename or "").strip()).name.strip() or "upload.bin"
     return await _ingest_document(
@@ -219,17 +285,24 @@ async def upload_binary(
         data=data,
         description=description,
         replace=replace,
+        index_name=index_name,
         store=store,
+        manager=manager,
     )
 
 
 @app.post("/chat")
 async def chat(
     body: ChatRequest,
-    store: RAGVectorStore = Depends(get_vector_store),
+    index_name: str = Query("default", description="检索所用索引名称"),
     llm: BaseChatModel = Depends(get_chat_model),
+    manager: IndexManager = Depends(get_index_manager),
 ):
     """同步聊天：返回 Pydantic 校验后的结构化 JSON。"""
+    try:
+        store = manager.get_store(index_name)
+    except (InvalidIndexNameError, IndexNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     try:
         result = await run_rag_conversation_to_structured(llm, store, body.message)
     except Exception as exc:  # noqa: BLE001
@@ -240,8 +313,9 @@ async def chat(
 @app.post("/chat/stream")
 async def chat_stream(
     body: ChatRequest,
-    store: RAGVectorStore = Depends(get_vector_store),
+    index_name: str = Query("default", description="检索所用索引名称"),
     llm: BaseChatModel = Depends(get_chat_model),
+    manager: IndexManager = Depends(get_index_manager),
 ):
     """
     SSE 流式聊天：`data:` 行为 JSON。
@@ -251,6 +325,11 @@ async def chat_stream(
     - `type=done`：结束
     - `type=error`：错误信息
     """
+    try:
+        store = manager.get_store(index_name)
+    except (InvalidIndexNameError, IndexNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     gen = stream_rag_sse_events(llm, store, body.message)
 
     return StreamingResponse(

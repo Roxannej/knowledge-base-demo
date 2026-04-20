@@ -31,7 +31,7 @@ def _sentence_transformers_available() -> bool:
     try:
         import sentence_transformers  # noqa: F401
         import torch  # noqa: F401
-    except ImportError:
+    except Exception:
         return False
     return True
 
@@ -116,7 +116,7 @@ class SentenceTransformerEmbedding:
                 if self._model is None:
                     try:
                         from sentence_transformers import SentenceTransformer
-                    except ImportError as exc:  # pragma: no cover
+                    except Exception as exc:  # pragma: no cover
                         raise RuntimeError(
                             "未安装 sentence-transformers / torch。请在 backend 虚拟环境中执行："
                             " pip install -r requirements.txt"

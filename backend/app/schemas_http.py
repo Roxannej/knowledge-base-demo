@@ -11,3 +11,23 @@ class ChatRequest(BaseModel):
     """聊天请求体。"""
 
     message: str = Field(min_length=1, description="用户问题")
+
+
+class CreateIndexRequest(BaseModel):
+    """创建索引请求体。"""
+
+    name: str = Field(
+        min_length=1,
+        max_length=64,
+        description="索引名称，仅允许字母、数字、下划线和中划线",
+    )
+    description: str = Field(default="", max_length=500, description="索引描述")
+
+
+class IndexResponse(BaseModel):
+    """索引元数据响应。"""
+
+    name: str
+    description: str = ""
+    document_count: int = Field(ge=0)
+    updated_at: str
