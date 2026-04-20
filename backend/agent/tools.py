@@ -11,11 +11,11 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.tools import tool
 
 from kb_rag.retrieval import retrieve_with_multiquery_rerank
-from kb_rag.vector_store import InMemoryVectorStore
+from kb_rag.vector_store import RAGVectorStore
 
 
 def build_search_docs_tool(
-    store: InMemoryVectorStore,
+    store: RAGVectorStore,
     llm: BaseChatModel,
     *,
     max_alternates: int = 4,

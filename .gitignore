@@ -21,3 +21,7 @@ frontend/dist/
 !.env.example
 !**/.env.example
 .DS_Store
+
+# FAISS 本地索引（上传后生成，勿提交）
+backend/data/indexes/*
+!backend/data/indexes/.gitkeep

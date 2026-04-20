@@ -10,11 +10,11 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 from .multi_query import generate_multi_queries
 from .rerank import rerank_passages
-from .vector_store import InMemoryVectorStore, SearchResult
+from .vector_store import RAGVectorStore, SearchResult
 
 
 async def retrieve_with_multiquery_rerank(
-    store: InMemoryVectorStore,
+    store: RAGVectorStore,
     llm: BaseChatModel,
     question: str,
     *,

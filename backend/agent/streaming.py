@@ -12,7 +12,7 @@ from typing import Any, AsyncIterator
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
-from kb_rag.vector_store import InMemoryVectorStore
+from kb_rag.vector_store import RAGVectorStore
 from schemas.rag_answer import RAGStructuredAnswer
 
 from .graph import build_rag_agent_graph
@@ -77,7 +77,7 @@ def _extract_text_delta(chunk: BaseMessage) -> str:
 
 async def stream_rag_sse_events(
     llm: BaseChatModel,
-    store: InMemoryVectorStore,
+    store: RAGVectorStore,
     user_message: str,
     *,
     recursion_limit: int = 25,

@@ -7,7 +7,7 @@ from __future__ import annotations
 import threading
 import uuid
 from dataclasses import dataclass
-from typing import List, Optional, Union
+from typing import List, Optional, Protocol, Union, runtime_checkable
 
 import numpy as np
 
@@ -23,6 +23,24 @@ class SearchResult:
     chunk_id: str
     text: str
     score: float
+
+
+@runtime_checkable
+class RAGVectorStore(Protocol):
+    """向量库对外协议：内存实现与 FAISS 持久化实现均满足此接口。"""
+
+    @property
+    def size(self) -> int: ...
+
+    def clear(self) -> None: ...
+
+    def add_texts(self, texts: list[str]) -> list[str]: ...
+
+    def add_document_bytes(self, *, filename: str, data: bytes) -> list[str]: ...
+
+    def encode_query(self, query: str) -> np.ndarray: ...
+
+    def similarity_search(self, query: str, k: int = 4) -> list[SearchResult]: ...
 
 
 def _top_k_indices(scores: np.ndarray, k: int) -> np.ndarray:

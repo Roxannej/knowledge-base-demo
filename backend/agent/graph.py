@@ -12,7 +12,7 @@ from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langgraph.graph import END, MessagesState, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from kb_rag.vector_store import InMemoryVectorStore
+from kb_rag.vector_store import RAGVectorStore
 
 from .tools import build_search_docs_tool
 
@@ -34,7 +34,7 @@ def _route_after_agent(state: MessagesState):
 
 def build_rag_agent_graph(
     llm: BaseChatModel,
-    store: InMemoryVectorStore,
+    store: RAGVectorStore,
     *,
     system_prompt: str | None = None,
 ):

@@ -9,7 +9,7 @@ from __future__ import annotations
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
-from kb_rag.vector_store import InMemoryVectorStore
+from kb_rag.vector_store import RAGVectorStore
 from schemas.rag_answer import RAGStructuredAnswer
 
 from .graph import build_rag_agent_graph
@@ -18,7 +18,7 @@ from .structured import synthesize_structured_rag_answer
 
 async def run_rag_conversation_to_structured(
     llm: BaseChatModel,
-    store: InMemoryVectorStore,
+    store: RAGVectorStore,
     user_message: str,
     *,
     recursion_limit: int = 25,

@@ -7,7 +7,7 @@
 
 - 文档上传与解析：`/upload`（multipart）与 `/upload/binary`（raw bytes）
 - 自定义文本切分（段落 + 句子 + 超长兜底切分）
-- 向量检索（进程内向量库 `InMemoryVectorStore`）
+- 向量检索（FAISS 落盘索引，重启后保留；可选环境变量 `RAG_FAISS_INDEX_DIR`）
 - Multi-query 召回 + LLM rerank
 - Agent 工具调用（`search_docs`）
 - 两种对话接口：
@@ -40,7 +40,8 @@ backend/
     document_loader.py
     chunking.py
     embeddings.py
-    vector_store.py
+    vector_store.py      # InMemoryVectorStore（测试/对照）
+    faiss_store.py       # FaissPersistedVectorStore（默认依赖注入）
     multi_query.py
     rerank.py
     retrieval.py
@@ -160,7 +161,7 @@ SSE 流式对话，输入同 `/chat`，返回事件：
 
 1. 文档解析为纯文本
 2. 自定义规则切分为 chunks
-3. chunks 编码为向量并写入内存向量库
+3. chunks 编码为向量并写入 FAISS 索引（落盘）
 4. 提问时生成 multi-query（LLM）
 5. 各 query 在向量库检索并合并候选
 6. LLM rerank 候选
@@ -169,12 +170,14 @@ SSE 流式对话，输入同 `/chat`，返回事件：
 
 ## 关于数据持久化
 
-当前向量库为 `InMemoryVectorStore`：
+默认向量库为 **`FaissPersistedVectorStore`**（`faiss-cpu`）：
 
-- 数据仅保存在后端进程内存中
-- 服务重启（包括 `--reload` 重启）后数据会丢失
+- 索引与 chunk 元数据写在 `backend/data/indexes/default/`（`index.faiss` + `store_meta.json`）
+- 可通过环境变量 **`RAG_FAISS_INDEX_DIR`** 指定其它目录（见 `backend/.env.example`）
+- 上传成功后会落盘；**重启 uvicorn 后仍可检索**，无需重新上传
+- 若更换嵌入后端（例如从 sentence-transformers 切到哈希兜底）或向量维度变化，程序会拒绝加载旧索引并清空该目录下的损坏文件，需重新上传
 
-如果要用于生产，建议替换为持久化向量存储（如 pgvector / Milvus / Qdrant / Pinecone 等）。
+生产环境还可评估 pgvector / Milvus / Qdrant 等托管方案；本仓库的 FAISS 方案面向本地开发与演示。
 
 ## 常见问题
 
@@ -184,7 +187,7 @@ SSE 流式对话，输入同 `/chat`，返回事件：
 - **上传后提示未提取到文本**
   - 可能是扫描件或图片 PDF；可在上传时添加 `description`
 - **重启后问答失效**
-  - 属于内存向量库预期行为，需重新上传
+  - 若仍出现：检查 `GET /health` 中的 `vector_index_dir` 是否可写、磁盘索引是否被清空；确认嵌入后端与上传时一致（`embedding_backend`）
 
 ## 开发命令（Makefile）
 

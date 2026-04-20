@@ -7,6 +7,7 @@ FastAPI 入口：文档上传、同步聊天（结构化 JSON）、SSE 流式聊
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path, PurePath
 
@@ -32,7 +33,8 @@ from agent import run_rag_conversation_to_structured, stream_rag_sse_events
 from app.deps import get_chat_model, get_vector_store
 from app.schemas_http import ChatRequest
 import kb_rag.document_loader as _document_loader
-from kb_rag import InMemoryVectorStore, SUPPORTED_UPLOAD_EXTENSIONS, UnsupportedDocumentError
+from kb_rag import SUPPORTED_UPLOAD_EXTENSIONS, UnsupportedDocumentError
+from kb_rag.vector_store import RAGVectorStore
 from kb_rag.chunking import chunk_plain_text
 from kb_rag.embeddings import embedding_backend_label
 from kb_rag.llm import openai_chat_env_status
@@ -56,7 +58,7 @@ async def _ingest_document(
     data: bytes,
     description: str | None,
     replace: bool,
-    store: InMemoryVectorStore,
+    store: RAGVectorStore,
 ) -> dict:
     """解析、分块、入库；失败时不执行 replace 清空。"""
     if not data:
@@ -85,9 +87,12 @@ async def _ingest_document(
                     "可在 multipart 中增加字段 description 补充说明文字以便入库；向量库未修改。"
                 ),
             )
-        if replace:
-            store.clear()
-        ids = store.add_texts(texts)
+        def _blocking_commit() -> list[str]:
+            if replace:
+                store.clear()
+            return store.add_texts(texts)
+
+        ids = await asyncio.to_thread(_blocking_commit)
     except HTTPException:
         raise
     except UnsupportedDocumentError as exc:
@@ -117,12 +122,18 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
+    store = get_vector_store()
+    vec_meta: dict = {"vector_store_backend": "faiss"}
+    idx_dir = getattr(store, "index_dir", None)
+    if idx_dir is not None:
+        vec_meta["vector_index_dir"] = str(idx_dir)
     return {
         "status": "ok",
         "supported_upload_extensions": list(SUPPORTED_UPLOAD_EXTENSIONS),
         # 用于排查加载路径：应指向本项目 backend/kb_rag/document_loader.py
         "document_loader_file": getattr(_document_loader, "__file__", None),
         "embedding_backend": embedding_backend_label(),
+        **vec_meta,
         **openai_chat_env_status(),
     }
 
@@ -131,7 +142,7 @@ async def health():
 async def upload(
     request: Request,
     replace: bool = Query(False, description="为 true 时先清空向量库再写入"),
-    store: InMemoryVectorStore = Depends(get_vector_store),
+    store: RAGVectorStore = Depends(get_vector_store),
 ):
     """
     上传文档并写入向量库（`multipart/form-data`）。
@@ -193,7 +204,7 @@ async def upload_binary(
         max_length=4000,
         description="可选说明（URL 编码）；会并入待索引文本前缀",
     ),
-    store: InMemoryVectorStore = Depends(get_vector_store),
+    store: RAGVectorStore = Depends(get_vector_store),
 ):
     """
     原始请求体即文件字节（非 multipart），适合命令行：
@@ -215,7 +226,7 @@ async def upload_binary(
 @app.post("/chat")
 async def chat(
     body: ChatRequest,
-    store: InMemoryVectorStore = Depends(get_vector_store),
+    store: RAGVectorStore = Depends(get_vector_store),
     llm: BaseChatModel = Depends(get_chat_model),
 ):
     """同步聊天：返回 Pydantic 校验后的结构化 JSON。"""
@@ -229,7 +240,7 @@ async def chat(
 @app.post("/chat/stream")
 async def chat_stream(
     body: ChatRequest,
-    store: InMemoryVectorStore = Depends(get_vector_store),
+    store: RAGVectorStore = Depends(get_vector_store),
     llm: BaseChatModel = Depends(get_chat_model),
 ):
     """
