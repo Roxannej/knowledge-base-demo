@@ -31,7 +31,7 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from agent import run_rag_conversation_to_structured, stream_rag_sse_events
 from app.deps import get_chat_model, get_index_manager, get_vector_store
-from app.schemas_http import ChatRequest, CreateIndexRequest, IndexResponse
+from app.schemas_http import ChatRequest, CreateIndexRequest, IndexResponse, RetrievalStrategy
 import kb_rag.document_loader as _document_loader
 from kb_rag import SUPPORTED_UPLOAD_EXTENSIONS, UnsupportedDocumentError
 from kb_rag.index_manager import (
@@ -40,6 +40,7 @@ from kb_rag.index_manager import (
     IndexNotFoundError,
     InvalidIndexNameError,
 )
+from kb_rag.retrieval import RetrievalConfig
 from kb_rag.vector_store import RAGVectorStore
 from kb_rag.chunking import chunk_plain_text
 from kb_rag.embeddings import embedding_backend_label
@@ -295,6 +296,13 @@ async def upload_binary(
 async def chat(
     body: ChatRequest,
     index_name: str = Query("default", description="检索所用索引名称"),
+    retrieval_strategy: RetrievalStrategy = Query(
+        "similarity",
+        description="检索策略：similarity | mmr | score_threshold | hybrid",
+    ),
+    score_threshold: float = Query(0.25, ge=0.0, le=1.0, description="阈值检索最小分数"),
+    mmr_lambda: float = Query(0.65, ge=0.0, le=1.0, description="MMR 相关性权重"),
+    hybrid_alpha: float = Query(0.6, ge=0.0, le=1.0, description="hybrid 策略融合权重"),
     llm: BaseChatModel = Depends(get_chat_model),
     manager: IndexManager = Depends(get_index_manager),
 ):
@@ -304,7 +312,17 @@ async def chat(
     except (InvalidIndexNameError, IndexNotFoundError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     try:
-        result = await run_rag_conversation_to_structured(llm, store, body.message)
+        result = await run_rag_conversation_to_structured(
+            llm,
+            store,
+            body.message,
+            retrieval_config=RetrievalConfig(
+                strategy=retrieval_strategy,
+                score_threshold=score_threshold,
+                mmr_lambda=mmr_lambda,
+                hybrid_alpha=hybrid_alpha,
+            ),
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return result.model_dump()
@@ -314,6 +332,13 @@ async def chat(
 async def chat_stream(
     body: ChatRequest,
     index_name: str = Query("default", description="检索所用索引名称"),
+    retrieval_strategy: RetrievalStrategy = Query(
+        "similarity",
+        description="检索策略：similarity | mmr | score_threshold | hybrid",
+    ),
+    score_threshold: float = Query(0.25, ge=0.0, le=1.0, description="阈值检索最小分数"),
+    mmr_lambda: float = Query(0.65, ge=0.0, le=1.0, description="MMR 相关性权重"),
+    hybrid_alpha: float = Query(0.6, ge=0.0, le=1.0, description="hybrid 策略融合权重"),
     llm: BaseChatModel = Depends(get_chat_model),
     manager: IndexManager = Depends(get_index_manager),
 ):
@@ -330,7 +355,17 @@ async def chat_stream(
     except (InvalidIndexNameError, IndexNotFoundError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    gen = stream_rag_sse_events(llm, store, body.message)
+    gen = stream_rag_sse_events(
+        llm,
+        store,
+        body.message,
+        retrieval_config=RetrievalConfig(
+            strategy=retrieval_strategy,
+            score_threshold=score_threshold,
+            mmr_lambda=mmr_lambda,
+            hybrid_alpha=hybrid_alpha,
+        ),
+    )
 
     return StreamingResponse(
         gen,

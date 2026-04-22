@@ -9,6 +9,7 @@ from __future__ import annotations
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
+from kb_rag.retrieval import RetrievalConfig
 from kb_rag.vector_store import RAGVectorStore
 from schemas.rag_answer import RAGStructuredAnswer
 
@@ -23,11 +24,12 @@ async def run_rag_conversation_to_structured(
     *,
     recursion_limit: int = 25,
     max_structured_retries: int = 3,
+    retrieval_config: RetrievalConfig | None = None,
 ) -> RAGStructuredAnswer:
     """
     先执行带 tools 的 LangGraph，再对完整消息历史做结构化抽取与重试校验。
     """
-    graph = build_rag_agent_graph(llm, store)
+    graph = build_rag_agent_graph(llm, store, retrieval_config=retrieval_config)
     state = await graph.ainvoke(
         {"messages": [HumanMessage(content=user_message)]},
         config={"recursion_limit": recursion_limit},

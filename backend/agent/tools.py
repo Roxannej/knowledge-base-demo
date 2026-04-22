@@ -10,7 +10,10 @@ from __future__ import annotations
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.tools import tool
 
-from kb_rag.retrieval import retrieve_with_multiquery_rerank
+from kb_rag.retrieval import (
+    RetrievalConfig,
+    retrieve_with_multiquery_rerank_debug,
+)
 from kb_rag.vector_store import RAGVectorStore
 
 
@@ -22,6 +25,7 @@ def build_search_docs_tool(
     per_query_k: int = 6,
     max_candidates: int = 16,
     rerank_top_n: int = 4,
+    retrieval_config: RetrievalConfig | None = None,
 ):
     """
     构造绑定向量库与 LLM 的 search_docs 工具（闭包捕获 store / llm）。
@@ -43,7 +47,8 @@ def build_search_docs_tool(
         if store.size == 0:
             return "（search_docs）当前知识库为空，请先上传文档。"
 
-        hits = await retrieve_with_multiquery_rerank(
+        cfg = retrieval_config or RetrievalConfig()
+        hits, debug = await retrieve_with_multiquery_rerank_debug(
             store,
             llm,
             q,
@@ -51,11 +56,20 @@ def build_search_docs_tool(
             per_query_k=per_query_k,
             max_candidates=max_candidates,
             rerank_top_n=rerank_top_n,
+            retrieval_config=cfg,
         )
         if not hits:
             return "（search_docs）未找到与查询足够相关的片段。"
 
         blocks: list[str] = []
+        blocks.append(
+            (
+                f"[debug] strategy={debug.strategy} queries={debug.query_count} "
+                f"merged={debug.merged_candidates} threshold_filtered={debug.threshold_filtered} "
+                f"rerank={debug.rerank_input}->{debug.rerank_output} "
+                f"hybrid_alpha={debug.hybrid_alpha if debug.hybrid_alpha is not None else '-'}"
+            )
+        )
         for i, h in enumerate(hits, start=1):
             blocks.append(
                 f"[{i}] chunk_id={h.chunk_id} embedding_score={h.score:.4f}\n{h.text.strip()}"

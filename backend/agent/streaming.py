@@ -12,6 +12,7 @@ from typing import Any, AsyncIterator
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
+from kb_rag.retrieval import RetrievalConfig
 from kb_rag.vector_store import RAGVectorStore
 from schemas.rag_answer import RAGStructuredAnswer
 
@@ -82,6 +83,7 @@ async def stream_rag_sse_events(
     *,
     recursion_limit: int = 25,
     max_metadata_retries: int = 3,
+    retrieval_config: RetrievalConfig | None = None,
 ) -> AsyncIterator[str]:
     """
     异步迭代 SSE 文本帧（含 `data: ...\\n\\n` 前缀行）。
@@ -96,7 +98,7 @@ async def stream_rag_sse_events(
         stream_mode = resolve_stream_mode()
         processor = StreamMarkdownProcessor(mode=stream_mode)
 
-        graph = build_rag_agent_graph(llm, store)
+        graph = build_rag_agent_graph(llm, store, retrieval_config=retrieval_config)
         state = await graph.ainvoke(
             {"messages": [HumanMessage(content=user_message)]},
             config={"recursion_limit": recursion_limit},

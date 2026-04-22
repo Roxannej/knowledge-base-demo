@@ -25,6 +25,12 @@ export function HomePage() {
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
+  const [retrievalStrategy, setRetrievalStrategy] = useState<
+    "similarity" | "mmr" | "score_threshold" | "hybrid"
+  >("similarity");
+  const [scoreThreshold, setScoreThreshold] = useState(0.25);
+  const [mmrLambda, setMmrLambda] = useState(0.65);
+  const [hybridAlpha, setHybridAlpha] = useState(0.6);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -109,7 +115,13 @@ export function HomePage() {
     };
 
     try {
-      const res = await fetch(`${getApiBase()}/chat/stream`, {
+      const qs = new URLSearchParams({
+        retrieval_strategy: retrievalStrategy,
+        score_threshold: String(scoreThreshold),
+        mmr_lambda: String(mmrLambda),
+        hybrid_alpha: String(hybridAlpha),
+      });
+      const res = await fetch(`${getApiBase()}/chat/stream?${qs.toString()}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: userText }),
@@ -188,6 +200,65 @@ export function HomePage() {
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-base font-semibold text-slate-100">对话</h2>
             {chatBusy ? <span className="text-xs text-sky-300">生成中…</span> : null}
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-2 rounded-xl border border-slate-800/80 bg-slate-950/20 p-2 sm:grid-cols-4">
+            <label className="flex flex-col gap-1 text-xs text-slate-300">
+              检索策略
+              <select
+                value={retrievalStrategy}
+                onChange={(e) =>
+                  setRetrievalStrategy(
+                    e.target.value as "similarity" | "mmr" | "score_threshold" | "hybrid",
+                  )
+                }
+                disabled={chatBusy}
+                className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100"
+              >
+                <option value="similarity">similarity</option>
+                <option value="mmr">mmr</option>
+                <option value="score_threshold">score_threshold</option>
+                <option value="hybrid">hybrid</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-300">
+              score_threshold
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={scoreThreshold}
+                onChange={(e) => setScoreThreshold(Number(e.target.value || 0))}
+                disabled={chatBusy || retrievalStrategy !== "score_threshold"}
+                className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 disabled:opacity-50"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-300">
+              mmr_lambda
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={mmrLambda}
+                onChange={(e) => setMmrLambda(Number(e.target.value || 0))}
+                disabled={chatBusy || (retrievalStrategy !== "mmr" && retrievalStrategy !== "hybrid")}
+                className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 disabled:opacity-50"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-300">
+              hybrid_alpha
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={hybridAlpha}
+                onChange={(e) => setHybridAlpha(Number(e.target.value || 0))}
+                disabled={chatBusy || retrievalStrategy !== "hybrid"}
+                className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 disabled:opacity-50"
+              />
+            </label>
           </div>
 
           <div className="mt-4 h-[52vh] overflow-y-auto rounded-xl border border-slate-800/80 bg-slate-950/30 p-3">

@@ -12,6 +12,7 @@ from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langgraph.graph import END, MessagesState, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
+from kb_rag.retrieval import RetrievalConfig
 from kb_rag.vector_store import RAGVectorStore
 
 from .tools import build_search_docs_tool
@@ -37,6 +38,7 @@ def build_rag_agent_graph(
     store: RAGVectorStore,
     *,
     system_prompt: str | None = None,
+    retrieval_config: RetrievalConfig | None = None,
 ):
     """
     构建已编译的 LangGraph。
@@ -45,7 +47,7 @@ def build_rag_agent_graph(
     - 节点 tools：ToolNode 执行模型选择的工具（含 search_docs）
     - 边：tools -> agent 循环；agent 无 tool_calls 时结束（即 final_answer）
     """
-    search_docs = build_search_docs_tool(store, llm)
+    search_docs = build_search_docs_tool(store, llm, retrieval_config=retrieval_config)
     tools = [search_docs]
     llm_with_tools = llm.bind_tools(tools)
     tool_node = ToolNode(tools)
