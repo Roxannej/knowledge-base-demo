@@ -16,8 +16,22 @@ type UiMessage = {
   sources?: string[];
 };
 
+type WorkflowEventItem = {
+  id: string;
+  time: string;
+  node: string;
+  updatedKeys: string[];
+};
+
 function uid() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function nowTimeLabel() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(
+    d.getSeconds(),
+  ).padStart(2, "0")}`;
 }
 
 export function HomePage() {
@@ -31,6 +45,10 @@ export function HomePage() {
   const [scoreThreshold, setScoreThreshold] = useState(0.25);
   const [mmrLambda, setMmrLambda] = useState(0.65);
   const [hybridAlpha, setHybridAlpha] = useState(0.6);
+  const [workflowMode, setWorkflowMode] = useState<"agent" | "task">("agent");
+  const [includeWorkflowEvents, setIncludeWorkflowEvents] = useState(false);
+  const [workflowEvents, setWorkflowEvents] = useState<WorkflowEventItem[]>([]);
+  const [threadId] = useState(() => `demo-${uid()}`);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -67,6 +85,7 @@ export function HomePage() {
     ]);
 
     setChatBusy(true);
+    setWorkflowEvents([]);
     let sseBuf = "";
 
     const applyEvents = (events: SseJsonEvent[]) => {
@@ -106,6 +125,16 @@ export function HomePage() {
                 : m,
             ),
           );
+        } else if (ev.type === "workflow_event") {
+          setWorkflowEvents((prev) => [
+            ...prev,
+            {
+              id: uid(),
+              time: nowTimeLabel(),
+              node: ev.node,
+              updatedKeys: Array.isArray(ev.updated_keys) ? ev.updated_keys : [],
+            },
+          ]);
         } else if (ev.type === "done") {
           setMessages((prev) =>
             prev.map((m) => (m.id === assistantId ? { ...m, streaming: false } : m)),
@@ -120,6 +149,9 @@ export function HomePage() {
         score_threshold: String(scoreThreshold),
         mmr_lambda: String(mmrLambda),
         hybrid_alpha: String(hybridAlpha),
+        workflow_mode: workflowMode,
+        thread_id: threadId,
+        include_workflow_events: String(includeWorkflowEvents),
       });
       const res = await fetch(`${getApiBase()}/chat/stream?${qs.toString()}`, {
         method: "POST",
@@ -201,7 +233,7 @@ export function HomePage() {
             <h2 className="text-base font-semibold text-slate-100">对话</h2>
             {chatBusy ? <span className="text-xs text-sky-300">生成中…</span> : null}
           </div>
-          <div className="mt-3 grid grid-cols-1 gap-2 rounded-xl border border-slate-800/80 bg-slate-950/20 p-2 sm:grid-cols-4">
+          <div className="mt-3 grid grid-cols-1 gap-2 rounded-xl border border-slate-800/80 bg-slate-950/20 p-2 sm:grid-cols-6">
             <label className="flex flex-col gap-1 text-xs text-slate-300">
               检索策略
               <select
@@ -218,6 +250,30 @@ export function HomePage() {
                 <option value="mmr">mmr</option>
                 <option value="score_threshold">score_threshold</option>
                 <option value="hybrid">hybrid</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-300">
+              工作流模式
+              <select
+                value={workflowMode}
+                onChange={(e) => setWorkflowMode(e.target.value as "agent" | "task")}
+                disabled={chatBusy}
+                className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100"
+              >
+                <option value="agent">agent</option>
+                <option value="task">task</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-300">
+              事件流
+              <select
+                value={includeWorkflowEvents ? "on" : "off"}
+                onChange={(e) => setIncludeWorkflowEvents(e.target.value === "on")}
+                disabled={chatBusy || workflowMode !== "task"}
+                className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 disabled:opacity-50"
+              >
+                <option value="off">off</option>
+                <option value="on">on</option>
               </select>
             </label>
             <label className="flex flex-col gap-1 text-xs text-slate-300">
@@ -260,6 +316,28 @@ export function HomePage() {
               />
             </label>
           </div>
+
+          {workflowMode === "task" && includeWorkflowEvents ? (
+            <div className="mt-2 rounded-lg border border-slate-800/80 bg-slate-950/20 p-2 text-xs text-slate-300">
+              <div className="mb-1 text-slate-400">Workflow Events（thread_id: {threadId}）</div>
+              <div className="max-h-24 overflow-y-auto space-y-1">
+                {workflowEvents.length === 0 ? (
+                  <div className="text-slate-500">等待事件…</div>
+                ) : (
+                  workflowEvents.map((event) => (
+                    <div key={event.id} className="flex items-start gap-2">
+                      <span className="text-emerald-300">●</span>
+                      <span className="text-slate-400">{event.time}</span>
+                      <span className="text-slate-200">{event.node}</span>
+                      <span className="text-slate-500">
+                        {event.updatedKeys.length > 0 ? event.updatedKeys.join(", ") : "no state updates"}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-4 h-[52vh] overflow-y-auto rounded-xl border border-slate-800/80 bg-slate-950/30 p-3">
             {messages.length === 0 ? (

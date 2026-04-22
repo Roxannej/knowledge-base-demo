@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 RetrievalStrategy = Literal["similarity", "mmr", "score_threshold", "hybrid"]
+WorkflowMode = Literal["agent", "task"]
 
 
 class ChatRequest(BaseModel):

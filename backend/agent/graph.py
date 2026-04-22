@@ -15,15 +15,16 @@ from langgraph.prebuilt import ToolNode
 from kb_rag.retrieval import RetrievalConfig
 from kb_rag.vector_store import RAGVectorStore
 
-from .tools import build_search_docs_tool
+from .tools import build_get_index_stats_tool, build_search_docs_tool
 
 
 DEFAULT_SYSTEM_PROMPT = """你是「上传文档问答」助手。
 
 规则：
 1. 当用户问题依赖文档中的事实、数字、表格、条款或专有名词时，必须先调用 search_docs 做检索。
-2. 可多次检索（换 query）直到信息足够；不要编造文档中不存在的内容。
-3. 当已能完整回答时，不要再调用工具；直接给出最终自然语言回答（Markdown 可读格式）。"""
+2. 可先调用 get_index_stats 判断知识库是否为空；为空时提示先上传文档，不要编造内容。
+3. 可多次检索（换 query）直到信息足够；不要编造文档中不存在的内容。
+4. 当已能完整回答时，不要再调用工具；直接给出最终自然语言回答（Markdown 可读格式）。"""
 
 
 def _route_after_agent(state: MessagesState):
@@ -37,6 +38,7 @@ def build_rag_agent_graph(
     llm: BaseChatModel,
     store: RAGVectorStore,
     *,
+    index_name: str = "default",
     system_prompt: str | None = None,
     retrieval_config: RetrievalConfig | None = None,
 ):
@@ -48,7 +50,8 @@ def build_rag_agent_graph(
     - 边：tools -> agent 循环；agent 无 tool_calls 时结束（即 final_answer）
     """
     search_docs = build_search_docs_tool(store, llm, retrieval_config=retrieval_config)
-    tools = [search_docs]
+    get_index_stats = build_get_index_stats_tool(store, index_name=index_name)
+    tools = [search_docs, get_index_stats]
     llm_with_tools = llm.bind_tools(tools)
     tool_node = ToolNode(tools)
 

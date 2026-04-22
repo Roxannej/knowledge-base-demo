@@ -7,6 +7,7 @@ SSE 载荷为 JSON 文本行，前端可解析 type=token | metadata | error。
 from __future__ import annotations
 
 import json
+from uuid import uuid4
 from typing import Any, AsyncIterator
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -19,6 +20,7 @@ from schemas.rag_answer import RAGStructuredAnswer
 from .graph import build_rag_agent_graph
 from .output_processor import StreamMarkdownProcessor, resolve_stream_mode
 from .structured import render_messages_transcript, synthesize_metadata_only
+from .task_workflow import build_task_workflow_graph
 
 
 ANSWER_STREAM_SYSTEM = """你是「上传文档问答」助手。根据提供的对话与工具检索摘录，只输出面向用户的最终 Markdown 正文。
@@ -81,8 +83,12 @@ async def stream_rag_sse_events(
     store: RAGVectorStore,
     user_message: str,
     *,
+    index_name: str = "default",
     recursion_limit: int = 25,
     max_metadata_retries: int = 3,
+    workflow_mode: str = "agent",
+    thread_id: str | None = None,
+    include_workflow_events: bool = False,
     retrieval_config: RetrievalConfig | None = None,
 ) -> AsyncIterator[str]:
     """
@@ -98,12 +104,68 @@ async def stream_rag_sse_events(
         stream_mode = resolve_stream_mode()
         processor = StreamMarkdownProcessor(mode=stream_mode)
 
-        graph = build_rag_agent_graph(llm, store, retrieval_config=retrieval_config)
-        state = await graph.ainvoke(
-            {"messages": [HumanMessage(content=user_message)]},
-            config={"recursion_limit": recursion_limit},
+        graph = (
+            build_task_workflow_graph(
+                llm,
+                store,
+                index_name=index_name,
+                retrieval_config=retrieval_config,
+            )
+            if workflow_mode == "task"
+            else build_rag_agent_graph(
+                llm,
+                store,
+                index_name=index_name,
+                retrieval_config=retrieval_config,
+            )
         )
-        messages: list[BaseMessage] = state["messages"]
+        invoke_config: dict[str, Any] = {"recursion_limit": recursion_limit}
+        invoke_config["tags"] = [f"route:chat_stream", f"workflow:{workflow_mode}", f"index:{index_name}"]
+        invoke_config["metadata"] = {
+            "route": "chat_stream",
+            "workflow_mode": workflow_mode,
+            "index_name": index_name,
+            "has_thread_id": bool(thread_id),
+        }
+        effective_thread_id = thread_id
+        if workflow_mode == "task" and include_workflow_events and not effective_thread_id:
+            effective_thread_id = f"stream-{uuid4().hex[:12]}"
+        if effective_thread_id:
+            invoke_config["configurable"] = {"thread_id": effective_thread_id}
+
+        messages: list[BaseMessage]
+        if workflow_mode == "task" and include_workflow_events:
+            async for chunk in graph.astream(
+                {"messages": [HumanMessage(content=user_message)]},
+                config=invoke_config,
+                stream_mode="updates",
+            ):
+                if isinstance(chunk, dict):
+                    for node_name, payload in chunk.items():
+                        if not isinstance(payload, dict):
+                            continue
+                        yield _sse_data(
+                            {
+                                "type": "workflow_event",
+                                "node": node_name,
+                                "updated_keys": sorted(payload.keys()),
+                            }
+                        )
+            if effective_thread_id:
+                snapshot = graph.get_state({"configurable": {"thread_id": effective_thread_id}})
+                values = snapshot.values if snapshot is not None else {}
+                msgs = values.get("messages", []) if isinstance(values, dict) else []
+                messages = list(msgs) if isinstance(msgs, list) else []
+            else:
+                messages = []
+        else:
+            state = await graph.ainvoke(
+                {"messages": [HumanMessage(content=user_message)]},
+                config=invoke_config,
+            )
+            messages = state["messages"]
+        if not messages:
+            messages = [HumanMessage(content=user_message)]
         transcript = render_messages_transcript(messages)
 
         stream_messages: list[BaseMessage] = [

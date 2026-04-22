@@ -30,8 +30,15 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from agent import run_rag_conversation_to_structured, stream_rag_sse_events
+from agent.task_workflow import get_task_workflow_thread_state
 from app.deps import get_chat_model, get_index_manager, get_vector_store
-from app.schemas_http import ChatRequest, CreateIndexRequest, IndexResponse, RetrievalStrategy
+from app.schemas_http import (
+    ChatRequest,
+    CreateIndexRequest,
+    IndexResponse,
+    RetrievalStrategy,
+    WorkflowMode,
+)
 import kb_rag.document_loader as _document_loader
 from kb_rag import SUPPORTED_UPLOAD_EXTENSIONS, UnsupportedDocumentError
 from kb_rag.index_manager import (
@@ -303,6 +310,11 @@ async def chat(
     score_threshold: float = Query(0.25, ge=0.0, le=1.0, description="阈值检索最小分数"),
     mmr_lambda: float = Query(0.65, ge=0.0, le=1.0, description="MMR 相关性权重"),
     hybrid_alpha: float = Query(0.6, ge=0.0, le=1.0, description="hybrid 策略融合权重"),
+    workflow_mode: WorkflowMode = Query(
+        "agent",
+        description="执行模式：agent（原对话循环）| task（任务工作流）",
+    ),
+    thread_id: str | None = Query(None, min_length=1, max_length=128, description="任务会话ID"),
     llm: BaseChatModel = Depends(get_chat_model),
     manager: IndexManager = Depends(get_index_manager),
 ):
@@ -316,6 +328,9 @@ async def chat(
             llm,
             store,
             body.message,
+            index_name=index_name,
+            workflow_mode=workflow_mode,
+            thread_id=thread_id,
             retrieval_config=RetrievalConfig(
                 strategy=retrieval_strategy,
                 score_threshold=score_threshold,
@@ -339,6 +354,15 @@ async def chat_stream(
     score_threshold: float = Query(0.25, ge=0.0, le=1.0, description="阈值检索最小分数"),
     mmr_lambda: float = Query(0.65, ge=0.0, le=1.0, description="MMR 相关性权重"),
     hybrid_alpha: float = Query(0.6, ge=0.0, le=1.0, description="hybrid 策略融合权重"),
+    workflow_mode: WorkflowMode = Query(
+        "agent",
+        description="执行模式：agent（原对话循环）| task（任务工作流）",
+    ),
+    thread_id: str | None = Query(None, min_length=1, max_length=128, description="任务会话ID"),
+    include_workflow_events: bool = Query(
+        False,
+        description="为 true 时在 SSE 中额外输出 workflow_event（节点进度）",
+    ),
     llm: BaseChatModel = Depends(get_chat_model),
     manager: IndexManager = Depends(get_index_manager),
 ):
@@ -359,6 +383,10 @@ async def chat_stream(
         llm,
         store,
         body.message,
+        index_name=index_name,
+        workflow_mode=workflow_mode,
+        thread_id=thread_id,
+        include_workflow_events=include_workflow_events,
         retrieval_config=RetrievalConfig(
             strategy=retrieval_strategy,
             score_threshold=score_threshold,
@@ -375,4 +403,36 @@ async def chat_stream(
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+@app.get("/threads/{thread_id}")
+async def get_thread_state(
+    thread_id: str,
+    index_name: str = Query("default", description="检索所用索引名称"),
+    retrieval_strategy: RetrievalStrategy = Query(
+        "similarity",
+        description="检索策略：similarity | mmr | score_threshold | hybrid",
+    ),
+    score_threshold: float = Query(0.25, ge=0.0, le=1.0),
+    mmr_lambda: float = Query(0.65, ge=0.0, le=1.0),
+    hybrid_alpha: float = Query(0.6, ge=0.0, le=1.0),
+    llm: BaseChatModel = Depends(get_chat_model),
+    manager: IndexManager = Depends(get_index_manager),
+):
+    try:
+        store = manager.get_store(index_name)
+    except (InvalidIndexNameError, IndexNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return await get_task_workflow_thread_state(
+        llm,
+        store,
+        thread_id=thread_id,
+        index_name=index_name,
+        retrieval_config=RetrievalConfig(
+            strategy=retrieval_strategy,
+            score_threshold=score_threshold,
+            mmr_lambda=mmr_lambda,
+            hybrid_alpha=hybrid_alpha,
+        ),
     )

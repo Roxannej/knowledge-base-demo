@@ -77,3 +77,22 @@ def build_search_docs_tool(
         return "\n\n---\n\n".join(blocks)
 
     return search_docs
+
+
+def build_get_index_stats_tool(
+    store: RAGVectorStore,
+    *,
+    index_name: str = "default",
+):
+    """返回当前索引的基础统计信息，供模型判断是否需要继续检索。"""
+
+    @tool
+    async def get_index_stats() -> str:
+        size = int(getattr(store, "size", 0))
+        return (
+            f"index_name={index_name}\n"
+            f"document_chunks={size}\n"
+            "usage_hint=当知识库为空或命中不足时，可提醒用户先上传文档或补充更具体问题。"
+        )
+
+    return get_index_stats

@@ -4,6 +4,7 @@
 export type SseJsonEvent =
   | { type: "token"; content: string }
   | { type: "metadata"; confidence: number; sources: string[] }
+  | { type: "workflow_event"; node: string; updated_keys: string[] }
   | { type: "done" }
   | { type: "error"; message: string };
 
