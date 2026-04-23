@@ -46,6 +46,7 @@ export function HomePage() {
   const [mmrLambda, setMmrLambda] = useState(0.65);
   const [hybridAlpha, setHybridAlpha] = useState(0.6);
   const [workflowMode, setWorkflowMode] = useState<"agent" | "task">("agent");
+  const [guardrailMode, setGuardrailMode] = useState<"strict" | "relaxed">("relaxed");
   const [includeWorkflowEvents, setIncludeWorkflowEvents] = useState(false);
   const [workflowEvents, setWorkflowEvents] = useState<WorkflowEventItem[]>([]);
   const [threadId] = useState(() => `demo-${uid()}`);
@@ -150,6 +151,7 @@ export function HomePage() {
         mmr_lambda: String(mmrLambda),
         hybrid_alpha: String(hybridAlpha),
         workflow_mode: workflowMode,
+        guardrail_mode: guardrailMode,
         thread_id: threadId,
         include_workflow_events: String(includeWorkflowEvents),
       });
@@ -233,7 +235,7 @@ export function HomePage() {
             <h2 className="text-base font-semibold text-slate-100">对话</h2>
             {chatBusy ? <span className="text-xs text-sky-300">生成中…</span> : null}
           </div>
-          <div className="mt-3 grid grid-cols-1 gap-2 rounded-xl border border-slate-800/80 bg-slate-950/20 p-2 sm:grid-cols-6">
+          <div className="mt-3 grid grid-cols-1 gap-2 rounded-xl border border-slate-800/80 bg-slate-950/20 p-2 sm:grid-cols-7">
             <label className="flex flex-col gap-1 text-xs text-slate-300">
               检索策略
               <select
@@ -262,6 +264,18 @@ export function HomePage() {
               >
                 <option value="agent">agent</option>
                 <option value="task">task</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-300">
+              Guardrails
+              <select
+                value={guardrailMode}
+                onChange={(e) => setGuardrailMode(e.target.value as "strict" | "relaxed")}
+                disabled={chatBusy}
+                className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100"
+              >
+                <option value="relaxed">relaxed</option>
+                <option value="strict">strict</option>
               </select>
             </label>
             <label className="flex flex-col gap-1 text-xs text-slate-300">

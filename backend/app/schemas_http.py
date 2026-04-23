@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 RetrievalStrategy = Literal["similarity", "mmr", "score_threshold", "hybrid"]
 WorkflowMode = Literal["agent", "task"]
+GuardrailMode = Literal["strict", "relaxed"]
 
 
 class ChatRequest(BaseModel):

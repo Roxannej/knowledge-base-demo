@@ -35,10 +35,12 @@ from app.deps import get_chat_model, get_index_manager, get_vector_store
 from app.schemas_http import (
     ChatRequest,
     CreateIndexRequest,
+    GuardrailMode,
     IndexResponse,
     RetrievalStrategy,
     WorkflowMode,
 )
+from guardrails import GuardrailViolation, validate_structured_output, validate_user_input
 import kb_rag.document_loader as _document_loader
 from kb_rag import SUPPORTED_UPLOAD_EXTENSIONS, UnsupportedDocumentError
 from kb_rag.index_manager import (
@@ -314,6 +316,10 @@ async def chat(
         "agent",
         description="执行模式：agent（原对话循环）| task（任务工作流）",
     ),
+    guardrail_mode: GuardrailMode = Query(
+        "relaxed",
+        description="Guardrails 模式：strict（严格拦截）| relaxed（降级处理）",
+    ),
     thread_id: str | None = Query(None, min_length=1, max_length=128, description="任务会话ID"),
     llm: BaseChatModel = Depends(get_chat_model),
     manager: IndexManager = Depends(get_index_manager),
@@ -324,10 +330,11 @@ async def chat(
     except (InvalidIndexNameError, IndexNotFoundError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     try:
+        safe_message = validate_user_input(body.message, mode=guardrail_mode)
         result = await run_rag_conversation_to_structured(
             llm,
             store,
-            body.message,
+            safe_message,
             index_name=index_name,
             workflow_mode=workflow_mode,
             thread_id=thread_id,
@@ -338,6 +345,9 @@ async def chat(
                 hybrid_alpha=hybrid_alpha,
             ),
         )
+        result = validate_structured_output(result, mode=guardrail_mode)
+    except GuardrailViolation as exc:
+        raise HTTPException(status_code=400, detail=f"Guardrails 拦截：{exc}") from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return result.model_dump()
@@ -357,6 +367,10 @@ async def chat_stream(
     workflow_mode: WorkflowMode = Query(
         "agent",
         description="执行模式：agent（原对话循环）| task（任务工作流）",
+    ),
+    guardrail_mode: GuardrailMode = Query(
+        "relaxed",
+        description="Guardrails 模式：strict（严格拦截）| relaxed（降级处理）",
     ),
     thread_id: str | None = Query(None, min_length=1, max_length=128, description="任务会话ID"),
     include_workflow_events: bool = Query(
@@ -378,13 +392,18 @@ async def chat_stream(
         store = manager.get_store(index_name)
     except (InvalidIndexNameError, IndexNotFoundError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        safe_message = validate_user_input(body.message, mode=guardrail_mode)
+    except GuardrailViolation as exc:
+        raise HTTPException(status_code=400, detail=f"Guardrails 拦截：{exc}") from exc
 
     gen = stream_rag_sse_events(
         llm,
         store,
-        body.message,
+        safe_message,
         index_name=index_name,
         workflow_mode=workflow_mode,
+        guardrail_mode=guardrail_mode,
         thread_id=thread_id,
         include_workflow_events=include_workflow_events,
         retrieval_config=RetrievalConfig(

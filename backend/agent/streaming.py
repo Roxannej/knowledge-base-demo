@@ -16,6 +16,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from kb_rag.retrieval import RetrievalConfig
 from kb_rag.vector_store import RAGVectorStore
 from schemas.rag_answer import RAGStructuredAnswer
+from guardrails import GuardrailViolation, validate_structured_output
 
 from .graph import build_rag_agent_graph
 from .output_processor import StreamMarkdownProcessor, resolve_stream_mode
@@ -87,6 +88,7 @@ async def stream_rag_sse_events(
     recursion_limit: int = 25,
     max_metadata_retries: int = 3,
     workflow_mode: str = "agent",
+    guardrail_mode: str = "relaxed",
     thread_id: str | None = None,
     include_workflow_events: bool = False,
     retrieval_config: RetrievalConfig | None = None,
@@ -211,7 +213,7 @@ async def stream_rag_sse_events(
             confidence=meta.confidence,
             sources=meta.sources,
         )
-        _ = RAGStructuredAnswer.model_validate(final.model_dump())
+        final = validate_structured_output(final, mode=guardrail_mode)
 
         yield _sse_data(
             {
@@ -220,6 +222,9 @@ async def stream_rag_sse_events(
                 "sources": meta.sources,
             }
         )
+        yield _sse_data({"type": "done"})
+    except GuardrailViolation as exc:
+        yield _sse_data({"type": "error", "message": f"Guardrails 拦截：{exc}"})
         yield _sse_data({"type": "done"})
     except Exception as exc:  # noqa: BLE001
         yield _sse_data({"type": "error", "message": _friendly_stream_error(exc)})
