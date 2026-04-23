@@ -35,11 +35,14 @@ from app.deps import get_chat_model, get_index_manager, get_vector_store
 from app.schemas_http import (
     ChatRequest,
     CreateIndexRequest,
+    DeepResearchRequest,
+    DeepResearchResponse,
     GuardrailMode,
     IndexResponse,
     RetrievalStrategy,
     WorkflowMode,
 )
+from deep_research import run_deep_research
 from guardrails import GuardrailViolation, validate_structured_output, validate_user_input
 import kb_rag.document_loader as _document_loader
 from kb_rag import SUPPORTED_UPLOAD_EXTENSIONS, UnsupportedDocumentError
@@ -422,6 +425,54 @@ async def chat_stream(
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+@app.post("/deep-research", response_model=DeepResearchResponse)
+async def deep_research(
+    body: DeepResearchRequest,
+    index_name: str = Query("default", description="检索所用索引名称"),
+    retrieval_strategy: RetrievalStrategy = Query(
+        "hybrid",
+        description="检索策略：similarity | mmr | score_threshold | hybrid",
+    ),
+    score_threshold: float = Query(0.25, ge=0.0, le=1.0),
+    mmr_lambda: float = Query(0.65, ge=0.0, le=1.0),
+    hybrid_alpha: float = Query(0.6, ge=0.0, le=1.0),
+    llm: BaseChatModel = Depends(get_chat_model),
+    manager: IndexManager = Depends(get_index_manager),
+):
+    """Day 6：Researcher/Analyst/Writer 三角色协作并生成落盘报告。"""
+    try:
+        store = manager.get_store(index_name)
+    except (InvalidIndexNameError, IndexNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        result = await run_deep_research(
+            llm,
+            store,
+            question=body.question,
+            index_name=index_name,
+            retrieval_config=RetrievalConfig(
+                strategy=retrieval_strategy,
+                score_threshold=score_threshold,
+                mmr_lambda=mmr_lambda,
+                hybrid_alpha=hybrid_alpha,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"deep research 失败: {exc}") from exc
+
+    return DeepResearchResponse(
+        report_id=result.report_id,
+        report_path=result.report_path,
+        question=result.question,
+        index_name=result.index_name,
+        created_at=result.created_at,
+        researcher_notes=result.researcher_notes,
+        analyst_notes=result.analyst_notes,
+        report_markdown=result.report_markdown,
     )
 
 

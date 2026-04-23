@@ -19,6 +19,25 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, description="用户问题")
 
 
+class DeepResearchRequest(BaseModel):
+    """深度研究请求体。"""
+
+    question: str = Field(min_length=1, description="研究问题")
+
+
+class DeepResearchResponse(BaseModel):
+    """深度研究结果响应。"""
+
+    report_id: str
+    report_path: str
+    question: str
+    index_name: str
+    created_at: str
+    researcher_notes: str
+    analyst_notes: str
+    report_markdown: str
+
+
 class CreateIndexRequest(BaseModel):
     """创建索引请求体。"""
 
