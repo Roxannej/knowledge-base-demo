@@ -96,6 +96,40 @@ make dev-frontend
 
 默认地址：`http://localhost:5173`
 
+## Day 7 工程化入口
+
+### 自动化测试（最小回归）
+
+当前已提供基础测试文件：`backend/tests/test_api_basics.py`，覆盖：
+
+- `GET /health` 基础可用性
+- 索引生命周期（创建、列表、详情、删除）
+
+运行命令（项目根目录）：
+
+```bash
+backend/.venv/bin/python -m pytest -q backend/tests/test_api_basics.py
+```
+
+### Docker 一键启动
+
+已提供：
+
+- `backend/Dockerfile`
+- `frontend/Dockerfile`
+- `docker-compose.yml`
+
+启动方式（项目根目录）：
+
+```bash
+docker compose up --build
+```
+
+访问：
+
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8000`
+
 ## 使用流程
 
 1. 打开前端页面
@@ -214,4 +248,14 @@ SSE 流式对话，输入同 `/chat`，返回事件：
 - `make dev-frontend`
 - `make upload-api FILE=/绝对路径/xxx.pdf`
 - `make upload-binary-api FILE=/绝对路径/xxx.pdf`
+
+## LangSmith 最小配置（建议）
+
+在 `backend/.env` 增加：
+
+- `LANGCHAIN_TRACING_V2=true`
+- `LANGCHAIN_API_KEY=<your_langsmith_key>`
+- `LANGCHAIN_PROJECT=knowledge-base-demo`（可选）
+
+注意：不要把任何 API Key 提交到仓库。
 
